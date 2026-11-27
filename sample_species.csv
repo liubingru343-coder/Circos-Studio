@@ -1,0 +1,16 @@
+﻿Source,Target,Value
+Sample_A,Species_1,120
+Sample_A,Species_2,85
+Sample_A,Species_3,35
+Sample_B,Species_1,65
+Sample_B,Species_3,150
+Sample_B,Species_4,42
+Sample_C,Species_2,95
+Sample_C,Species_3,72
+Sample_C,Species_5,110
+Sample_D,Species_1,88
+Sample_D,Species_4,60
+Sample_D,Species_5,125
+Sample_E,Species_2,55
+Sample_E,Species_4,105
+Sample_E,Species_5,90

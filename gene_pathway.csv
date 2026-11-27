@@ -1,0 +1,11 @@
+﻿Source,Target,Value
+Gene_A,Pathway_1,12
+Gene_A,Pathway_2,8
+Gene_B,Pathway_1,15
+Gene_B,Pathway_3,6
+Gene_C,Pathway_2,11
+Gene_C,Pathway_3,9
+Gene_D,Pathway_1,7
+Gene_D,Pathway_4,13
+Gene_E,Pathway_3,10
+Gene_E,Pathway_4,14
