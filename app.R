@@ -32,6 +32,15 @@ sample_data <- function() {
   )
 }
 
+# ---------- 基因—通路内置示例数据 ----------
+gene_data <- function() {
+  data.frame(
+    Source = c("Gene_B","Gene_E","Gene_D","Gene_A","Gene_C","Gene_E","Gene_A","Gene_B","Gene_C","Gene_D"),
+    Target = c("Pathway_1","Pathway_4","Pathway_4","Pathway_1","Pathway_2","Pathway_3","Pathway_2","Pathway_3","Pathway_4","Pathway_2"),
+    Value = c(15,14,13,12,11,10,9,8,7,6),
+    stringsAsFactors = FALSE
+  )
+}
 # ---------- 输入数据标准化与验证 ----------
 standardize_data <- function(x) {
   if (!is.data.frame(x) || nrow(x) == 0) {
@@ -99,7 +108,7 @@ make_palette <- function(n, palette_name) {
 }
 
 # ---------- 核心 Circos 绘图函数 ----------
-draw_circos <- function(dat, selected_node = "全部节点",
+draw_circos <- function(dat, selected_node = character(0),
                         palette_name = "科研蓝", show_labels = TRUE,
                         transparency = 0.35, title_text = "Circos 关系弦图") {
   circlize::circos.clear()
@@ -115,18 +124,21 @@ draw_circos <- function(dat, selected_node = "全部节点",
   node_cols <- make_palette(length(nodes), palette_name)
   names(node_cols) <- nodes
 
-  # 默认按来源节点着色；选中节点时突出相关连接，其余连接弱化
+  # 选中一个或多个节点时，突出相关连线并弱化其他连线。
   link_cols <- unname(node_cols[dat$Source])
-  if (!identical(selected_node, "全部节点") && selected_node %in% nodes) {
-    related <- dat$Source == selected_node | dat$Target == selected_node
-    link_cols[!related] <- grDevices::adjustcolor("#B8C0CC", alpha.f = 0.22)
-    link_cols[related] <- grDevices::adjustcolor(node_cols[selected_node], alpha.f = 0.90)
+  selected_nodes <- intersect(as.character(selected_node), nodes)
+  if (length(selected_nodes) > 0) {
+    related <- dat$Source %in% selected_nodes | dat$Target %in% selected_nodes
+    link_cols[!related] <- grDevices::adjustcolor("#B8C0CC", alpha.f = 0.18)
+    link_cols[related] <- grDevices::adjustcolor(link_cols[related], alpha.f = 0.95)
   }
 
+  graphics::par(mar = c(2, 2, 5, 2), xpd = NA)
   circlize::circos.par(
     start.degree = 90,
     gap.after = rep(3, length(nodes)),
     track.margin = c(0.01, 0.01),
+    cell.padding = c(0, 0, 0, 0),
     points.overflow.warning = FALSE
   )
 
@@ -144,7 +156,7 @@ draw_circos <- function(dat, selected_node = "全部节点",
     scale = FALSE
   )
 
-  title(main = title_text, cex.main = 1.35, font.main = 2, line = 0.5)
+  graphics::title(main = title_text, cex.main = 1.35, font.main = 2, line = 2)
 }
 
 # ---------- UI ----------
@@ -216,7 +228,7 @@ ui <- fluidPage(
       ),
       div(class="panel-card",
           h4("关系弦图"),
-          plotOutput("chord_plot", height = "650px",
+          plotOutput("chord_plot", height = "720px",
                      width = "100%")),
       div(class="panel-card",
           h4("数据预览与关系明细"),
@@ -242,14 +254,16 @@ server <- function(input, output, session) {
     updateTextInput(session, "chart_title", value = "Circos 关系弦图")
   })
 
+  # 上传数据优先；未上传时按模式切换对应内置示例数据。
   imported <- reactive({
-    if (is.null(input$file)) {
-      sample_data()
-    } else {
+    if (!is.null(input$file)) {
       read_uploaded_file(input$file$datapath, input$file$name)
+    } else if (identical(input$mode, "gene")) {
+      gene_data()
+    } else {
+      sample_data()
     }
   })
-
   cleaned <- reactive({
     standardize_data(imported())
   })
@@ -287,10 +301,27 @@ server <- function(input, output, session) {
     paste0(format(sum(filtered()$Value), big.mark = ","), "")
   })
 
+  sorted_data <- reactive({
+    dat <- filtered()
+    if (nrow(dat) == 0) return(dat)
+    dat[order(-dat$Value), , drop = FALSE]
+  })
+
+  selected_nodes <- reactive({
+    node <- input$selected_node
+    if (!is.null(node) && !identical(node, "全部节点")) return(node)
+    idx <- input$data_table_rows_selected
+    dat <- sorted_data()
+    if (length(idx) == 1 && idx >= 1 && idx <= nrow(dat)) {
+      return(c(dat$Source[idx], dat$Target[idx]))
+    }
+    character(0)
+  })
+
   output$chord_plot <- renderPlot({
     draw_circos(
       filtered(),
-      selected_node = input$selected_node,
+      selected_node = selected_nodes(),
       palette_name = input$palette,
       show_labels = input$show_labels,
       transparency = input$transparency,
@@ -299,48 +330,50 @@ server <- function(input, output, session) {
   }, res = 120)
 
   output$data_table <- renderDT({
-    dat <- filtered()
-    dat <- dat[order(-dat$Value), , drop = FALSE]
-    datatable(dat, rownames = FALSE, selection = "single",
-              options = list(pageLength = 8, scrollX = TRUE,
-                             dom = "tip"),
+    datatable(sorted_data(), rownames = FALSE, selection = "single",
+              options = list(pageLength = 8, scrollX = TRUE, dom = "tip"),
               colnames = c("来源节点 Source", "目标节点 Target", "连接权重 Value"))
   })
 
   output$selection_info <- renderUI({
     idx <- input$data_table_rows_selected
-    dat <- filtered()
+    dat <- sorted_data()
     if (length(idx) == 1 && nrow(dat) >= idx) {
-      row <- dat[order(-dat$Value), , drop = FALSE][idx, ]
+      row <- dat[idx, ]
       div(class="alert alert-info",
           strong("选中关系："),
           paste(row$Source, "→", row$Target,
-                "；权重：", format(row$Value, big.mark=",")))
+                "；权重：", format(row$Value, big.mark=",")),
+          br(),
+          span("弦图已突出显示该关系的两个节点及其关联连线。"))
     } else {
-      div(class="muted", "在上方表格中选择一条关系，可查看对应的来源、目标与权重。")
+      div(class="muted", "在关系表中选择一行，可联动突出显示来源节点、目标节点及其连接。")
     }
   })
-
   output$download_svg <- downloadHandler(
     filename = function() paste0("Circos-Studio-", Sys.Date(), ".svg"),
     content = function(file) {
       svglite::svglite(file, width = 10, height = 8, bg = "white")
-      draw_circos(filtered(), input$selected_node, input$palette,
-                  input$show_labels, input$transparency, input$chart_title)
-      grDevices::dev.off()
+      device_id <- grDevices::dev.cur()
+      tryCatch(
+        draw_circos(filtered(), selected_nodes(), input$palette,
+                    input$show_labels, input$transparency, input$chart_title),
+        finally = if (device_id %in% grDevices::dev.list()) grDevices::dev.off(device_id)
+      )
     }
   )
 
   output$download_png <- downloadHandler(
     filename = function() paste0("Circos-Studio-", Sys.Date(), ".png"),
     content = function(file) {
-      grDevices::png(file, width = 2400, height = 1900, res = 300,
-                     bg = "white")
-      draw_circos(filtered(), input$selected_node, input$palette,
-                  input$show_labels, input$transparency, input$chart_title)
-      grDevices::dev.off()
+      grDevices::png(file, width = 2400, height = 1900, res = 300, bg = "white")
+      device_id <- grDevices::dev.cur()
+      tryCatch(
+        draw_circos(filtered(), selected_nodes(), input$palette,
+                    input$show_labels, input$transparency, input$chart_title),
+        finally = if (device_id %in% grDevices::dev.list()) grDevices::dev.off(device_id)
+      )
     }
   )
 }
-
-shinyApp(ui = ui, server = server)
+ shinyApp(ui = ui, server = server)
